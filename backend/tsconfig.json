@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    /* File Layout Settings */
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    /* Modern Node.js Module Resolution Settings */
+    "target": "es2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["es2022"],
+    "types": ["node"],
+
+    /* Emits and Debugging */
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    /* Strict Typechecking Rules */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Loosened code layout boundaries for Node services */
+    "verbatimModuleSyntax": false
+  },
+  "include": ["src/**/*"]
+}

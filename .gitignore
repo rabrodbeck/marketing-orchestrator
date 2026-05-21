@@ -1,0 +1,5 @@
+node_moduels/
+dist/
+.env
+.DS_Store
+.aider*
