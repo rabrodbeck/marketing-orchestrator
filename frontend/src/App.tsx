@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react"; // Import React core, and the useState/useEffect hooks for managing component state and side effects.
 import ActionCard from "./components/ActionCard"; // Import the ActionCard component to display individual automated actions.
+import TelemetryPanel from "./components/TelemetryPanel";
 
 /**
  * Defines the structure for an AutomatedAction object.
@@ -26,6 +27,7 @@ export default function App() {
   // `running` state variable tracks whether the system diagnostics pipeline is currently executing.
   // This is used to disable the button and show loading feedback.
   const [running, setRunning] = useState(false);
+  const [logs, setLogs] = React.useState<any[]>([]);
 
   /**
    * --- Core Logic: Triggering the Analysis Pipeline ---
@@ -47,6 +49,19 @@ export default function App() {
     setRunning(false); // Set running back to false to re-enable the button.
   };
 
+  const fetchTelemetryLogs = async () => {
+    try {
+      const res = await fetch("http://localhost:4000/api/audit-logs");
+      const data = await res.json();
+      if (data.success) {
+        // Reverse the array records so that the newest logs are always pinned at the top
+        setLogs(data.logs.reverse());
+      }
+    } catch (err) {
+      console.error("Telemetry data frame connection broken.", err);
+    }
+  };
+
   /**
    * --- React Lifecycle: Polling for Asynchronous Updates ---
    * This `useEffect` hook sets up a polling mechanism to regularly fetch updated action statuses from the backend.
@@ -56,8 +71,11 @@ export default function App() {
     // Condition for polling: Only poll if there is at least one action with "EXECUTING" status.
     // This optimizes by not polling unnecessarily.
     if (actions.some(a => a.status === 'EXECUTING')) {
-      // Set up an interval to fetch data every 1.5 seconds (1500 milliseconds).
+      // Fire an immediate capture hook to seize the inital starting log event
+      fetchTelemetryLogs();
+
       const interval = window.setInterval(async () => {
+        // Worker Task A: Query updated status properties for state cards
         try {
           // Make a GET request to the backend's /api/actions endpoint to get the latest actions.
           const res = await fetch('http://localhost:4000/api/actions');
@@ -69,6 +87,9 @@ export default function App() {
           // Log any errors that occur during the fetch operation.
           console.error(e);
         }
+
+        // Worker Task B: Ingest the latest systemic audit logs from backend memory
+        fetchTelemetryLogs();
       }, 1500); // Polling interval.
 
       // Cleanup function: This is vital to prevent memory leaks.
@@ -107,6 +128,11 @@ export default function App() {
        	<ActionCard key={a.id} action={a} setActions={setActions} />
      	))}
    	</div>
+
+    {/* Mount log tracking element */}
+    <footer className="max-w-5xl mx-auto pb-12">
+      <TelemetryPanel logs={logs} />
+    </footer>
  	</div>
    );
  }
