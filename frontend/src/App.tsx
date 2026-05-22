@@ -30,6 +30,9 @@ export default function App() {
   const [running, setRunning] = useState(false);
   const [logs, setLogs] = React.useState<any[]>([]);
 
+  // `globalError` state variable handles error string capture for structural UI fallback rendering.
+  const [globalError, setGlobalError] = useState<string | null>(null);
+
   /**
    * --- Core Logic: Triggering the Analysis Pipeline ---
    * This asynchronous function is called when the "Execute System Diagnostics" button is clicked.
@@ -37,17 +40,29 @@ export default function App() {
    */
   const triggerPipeline = async () => {
     setRunning(true); // Set running to true to disable the button and show loading text.
+    setGlobalError(null); // Clear out any previous pipeline connection error states.
 
-    // Make a POST request to the backend to trigger the analysis.
-    const res = await fetch("http://localhost:4000/api/analyze", {
-      method: "POST" // Specify the HTTP method as POST.
-    });
-    const data = await res.json(); // Parse the JSON response from the backend.
+    try {
+      // Make a POST request to the backend to trigger the analysis.
+      const res = await fetch("http://localhost:4000/api/analyze", {
+        method: "POST" // Specify the HTTP method as POST.
+      });
 
-    // If the analysis was successful, update the `actions` state with the new list of actions.
-    if (data.success) setActions(data.actions);
-    
-    setRunning(false); // Set running back to false to re-enable the button.
+      if (!res.ok) {
+        throw new Error(`Server responded with an unexpected status code: ${res.status}`);
+      }
+
+      const data = await res.json(); // Parse the JSON response from the backend.
+
+      // If the analysis was successful, update the `actions` state with the new list of actions.
+      if (data.success) setActions(data.actions);
+    } catch (err) {
+      console.error("Pipeline triggering failure", err);
+      // Populate the UI alert state variable with a clean notification string.
+      setGlobalError("Failed to synchronize with the diagnostics engine. Please check if your local backend server is running.");
+    } finally {
+      setRunning(false); // Set running back to false to re-enable the button.
+    }
   };
 
   const fetchTelemetryLogs = async () => {
@@ -120,38 +135,59 @@ export default function App() {
 
   // --- Component Rendering ---
   return (
- 	<div className="min-h-screen bg-slate-900 text-slate-100 p-8 font-sans">
-    {/* Header Section */}
-   	<div className="max-w-4xl mx-auto flex justify-between items-center border-b border-slate-800 pb-6 mb-8">
-     	<div>
-       	<h1 className="text-2xl font-bold tracking-tight text-white">Marketing Orchestrator Engine</h1>
-       	<p className="text-xs text-slate-400 mt-0.5">Asynchronous Data Orchestration Proof of Concept</p>
-     	</div>
-       {/* Button to trigger the analysis pipeline */}
-     	<button 
-          onClick={triggerPipeline} // Calls `triggerPipeline` when clicked.
-          disabled={running} // Button is disabled if `running` state is true (pipeline is active).
-          className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 font-medium text-xs px-4 py-2 rounded-md shadow"
-        >
-       	{running ? 'Ingesting Feeds...' : 'Execute System Diagnostics'} {/* Dynamic button text based on `running` state. */}
-     	</button>
-   	</div>
+    <div className="min-h-screen bg-slate-900 text-slate-100 p-8 font-sans">
+      {/* Header Section */}
+      <div className="max-w-4xl mx-auto flex justify-between items-center border-b border-slate-800 pb-6 mb-8">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-white">Marketing Orchestrator Engine</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Asynchronous Data Orchestration Proof of Concept</p>
+        </div>
+         {/* Button to trigger the analysis pipeline */}
+        <button 
+            onClick={triggerPipeline} // Calls `triggerPipeline` when clicked.
+            disabled={running} // Button is disabled if `running` state is true (pipeline is active).
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 font-medium text-xs px-4 py-2 rounded-md shadow"
+          >
+          {running ? 'Ingesting Feeds...' : 'Execute System Diagnostics'} {/* Dynamic button text based on `running` state. */}
+        </button>
+      </div>
 
-    {/* Action Cards Display Section */}
-   	<div className="max-w-4xl mx-auto space-y-4">
-        {/* Map through the `actions` array and render an `ActionCard` for each action. */}
-     	{actions.map(a => (
-            // `key` prop is important for React to efficiently update lists.
-            // `action` prop passes the individual action data to the ActionCard.
-            // `setActions` prop allows ActionCard to update the global actions state.
-       	<ActionCard key={a.id} action={a} setActions={setActions} />
-     	))}
-   	</div>
+      {/* Global Application Systemic Alert Error Banner Block */}
+      {globalError && (
+        <div className="max-w-4xl mx-auto mb-6 bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 flex justify-between items-center text-rose-400 text-sm animate-fade-in">
+          <div className="flex items-center space-x-3">
+            <span className="text-base">⚠️</span>
+            <p className="font-medium">{globalError}</p>
+          </div>
+          <button 
+            onClick={() => setGlobalError(null)}
+            className="text-rose-400/50 hover:text-rose-400 font-semibold px-2 py-1 text-xs uppercase tracking-wider transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
-    {/* Mount log tracking element */}
-    <footer className="max-w-5xl mx-auto pb-12">
-      <TelemetryPanel logs={logs} />
-    </footer>
- 	</div>
-   );
- }
+      {/* Action Cards Display Section */}
+      <div className="max-w-4xl mx-auto space-y-4">
+          {/* Map through the `actions` array and render an `ActionCard` for each action. */}
+        {actions.length === 0 && !running && (
+          <div className="border border-dashed border-slate-800 rounded-xl p-12 text-center text-slate-500 text-sm font-medium">
+            No optimization entries generated. Execute diagnostics above to parse PMS systems.
+          </div>
+        )}
+        {actions.map(a => (
+              // `key` prop is important for React to efficiently update lists.
+              // `action` prop passes the individual action data to the ActionCard.
+              // `setActions` prop allows ActionCard to update the global actions state.
+          <ActionCard key={a.id} action={a} setActions={setActions} />
+        ))}
+      </div>
+
+      {/* Mount log tracking element */}
+      <footer className="max-w-4xl mx-auto mt-8 pb-12">
+        <TelemetryPanel logs={logs} />
+      </footer>
+    </div>
+  );
+}
