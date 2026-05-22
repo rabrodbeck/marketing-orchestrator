@@ -63,6 +63,24 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    const hydrateDashboardOnBoot = async () => {
+      try {
+        // Fetch any existing actions from db.json
+        const actionRes = await fetch("http://localhost:4000/api/actions");
+        const actionsData = await actionRes.json();
+        if (actionsData.success) setActions(actionsData.actions);
+
+        // Fetch the historical log timeline
+        await fetchTelemetryLogs();
+      } catch (err) {
+        console.error("Failed to hydrate dashboard on boot:", err);
+      }
+    }
+
+    hydrateDashboardOnBoot();
+  }, []); // empty dependency array => run one on initial page mount
+
   /**
    * --- React Lifecycle: Polling for Asynchronous Updates ---
    * This `useEffect` hook sets up a polling mechanism to regularly fetch updated action statuses from the backend.

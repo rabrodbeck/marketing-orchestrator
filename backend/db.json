@@ -1,0 +1,22 @@
+[
+  {
+    "id": "act-bbx08d2ci",
+    "propertyId": "prop-101",
+    "insight": "Oakridge Luxury Apartments matches high stability constraints at 97% occupancy, \n                        but marketing spend remains unthrottled at $5400/mo.",
+    "recommendation": "Scale back channel budget by 50% to $2700/mo to safeguard operational margins.",
+    "proposedValue": 2700,
+    "status": "SUCCESS",
+    "version": 2,
+    "createdAt": "2026-05-22T17:41:04.362Z"
+  },
+  {
+    "id": "act-7uwddl868",
+    "propertyId": "prop-102",
+    "insight": "Riverfront Micro-Lofts matches high stability constraints at 95% occupancy, \n                        but marketing spend remains unthrottled at $3200/mo.",
+    "recommendation": "Scale back channel budget by 50% to $1600/mo to safeguard operational margins.",
+    "proposedValue": 1600,
+    "status": "PENDING",
+    "version": 1,
+    "createdAt": "2026-05-22T17:41:04.363Z"
+  }
+]

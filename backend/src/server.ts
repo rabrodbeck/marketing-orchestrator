@@ -1,7 +1,7 @@
 import express from "express"; // Import the Express.js framework to build the server
 import cors from "cors"; // Import CORS to allow cross-origin requests from the frontend
 import { propertiesDB, marketingSpendDB, actionsDB, actionsAuditLogDB, AuditLog }from "./mockDatabase"; // Import mock data for properties, marketing spend, and actions
-import { createDiffieHellmanGroup } from "node:crypto";
+import { saveActions } from "./mockDatabase";
 
 // Initialize the Express application
 const app = express();
@@ -34,8 +34,7 @@ app.use(express.json());
  * This endpoint provides the frontend with the latest state of pending, executing, successful, or failed actions.
  */
 app.get("/api/actions", (req, res) => {
-    // Respond with a success status and the current list of actions from our mock database.
-    res.json({ success: true, actions: actionsDB })
+    res.status(200).json({ success: true, actions: actionsDB });
 });
 
 /**
@@ -63,7 +62,17 @@ app.post("/api/analyze", (req, res) => {
         // 3. The monthly marketing spend is significant (>= $3000).
         if (marketing && occupancyRate >= 0.92 && marketing.monthlySpend >= 3000) {
             // Prevent duplicate actions: Only create a new action if there isn't already a PENDING action for this property.
-            if (!actionsDB.some(a => a.propertyId === property.id && a.status === "PENDING")) {
+            // Upgraded constraint: Also blocks generation if an action is currently EXECUTING or was successfully synced within the last 24 hours.
+            const hasRecentAction = actionsDB.some(a => {
+                const isSameProperty = a.propertyId === property.id;
+                const isPendingOrExecuting = a.status === "PENDING" || a.status === "EXECUTING";
+                const isRecentSuccess = a.status === "SUCCESS" && 
+                    (new Date().getTime() - new Date(a.createdAt).getTime() < 24 * 60 * 60 * 1000);
+
+                return isSameProperty && (isPendingOrExecuting || isRecentSuccess);
+            });
+
+            if (!hasRecentAction) {
                 // Calculate the proposed reduction in marketing spend.
                 const proposedReduction = Math.round(marketing.monthlySpend * 0.50);
                 
@@ -73,12 +82,15 @@ app.post("/api/analyze", (req, res) => {
                     propertyId: property.id,
                     insight: `${property.name} matches high stability constraints at ${(occupancyRate * 100).toFixed(0)}% occupancy, 
                         but marketing spend remains unthrottled at $${marketing.monthlySpend}/mo.`, // Detailed insight for the user.
-       	            recommendation: `Scale back channel budget by 50% to $${proposedReduction}/mo to safeguard operational margins.`, // Actionable recommendation.
-       	            proposedValue: proposedReduction, // The numerical value for the proposed change.
+                    recommendation: `Scale back channel budget by 50% to $${proposedReduction}/mo to safeguard operational margins.`, // Actionable recommendation.
+                    proposedValue: proposedReduction, // The numerical value for the proposed change.
                     status: "PENDING", // Initial status of the action.
                     version: 1, // Every optimization item initializes at version 1
                     createdAt: new Date().toISOString() // Timestamp for when the action was created.
                 });
+
+                // Instantly write newly detected anomalies directly to db.json
+                saveActions(actionsDB);
             }
         }
     }
@@ -121,7 +133,7 @@ app.post("/api/actions/:id/execute", (req, res) => {
             "SYNC_FAILED",
             `Concurrency Collision: Client snapshot (v${incomingVersion}) is out of sync with memory state (v${action.version}).`
         );
-        return res.status(404).json({ success: false, error: "Concurrency conflict encountered. App state out of sync." });
+        return res.status(409).json({ success: false, error: "Concurrency conflict encountered. App state out of sync." });
     }
 
     // --- Acquire Lock Safe & Mutate Version
@@ -130,6 +142,7 @@ app.post("/api/actions/:id/execute", (req, res) => {
     // This instantly breaks paralle execution threads if a multi-click slips through.
     action.status = "EXECUTING";
     action.version += 1; // increment version instantly to secure the db lock
+    saveActions(actionsDB); // Lock this change down to disk so duplicate race requests get rejected even if the server reboots
 
     // Log that the user approved the budget change, lock was secured, and version was updated
     createAuditLog(
@@ -143,6 +156,8 @@ app.post("/api/actions/:id/execute", (req, res) => {
     // Use setTimeout to mimic a long-running, decoupled background process.
     setTimeout(() => {
         action.status = "SUCCESS";
+
+        saveActions(actionsDB); // Save the successful completion status down to disk
 
         // Log that our third-party network finished syncing parameters safely
         createAuditLog(
