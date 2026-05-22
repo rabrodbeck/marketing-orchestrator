@@ -1,6 +1,7 @@
 import express from "express"; // Import the Express.js framework to build the server
 import cors from "cors"; // Import CORS to allow cross-origin requests from the frontend
 import { propertiesDB, marketingSpendDB, actionsDB, actionsAuditLogDB, AuditLog }from "./mockDatabase"; // Import mock data for properties, marketing spend, and actions
+import { createDiffieHellmanGroup } from "node:crypto";
 
 // Initialize the Express application
 const app = express();
@@ -75,6 +76,7 @@ app.post("/api/analyze", (req, res) => {
        	            recommendation: `Scale back channel budget by 50% to $${proposedReduction}/mo to safeguard operational margins.`, // Actionable recommendation.
        	            proposedValue: proposedReduction, // The numerical value for the proposed change.
                     status: "PENDING", // Initial status of the action.
+                    version: 1, // Every optimization item initializes at version 1
                     createdAt: new Date().toISOString() // Timestamp for when the action was created.
                 });
             }
@@ -92,30 +94,53 @@ app.post("/api/analyze", (req, res) => {
  */
 app.post("/api/actions/:id/execute", (req, res) => {
     const { id } = req.params; // Extract the action ID from the URL parameters.
-    const action = actionsDB.find(a => a.id === id); // Find the action in our database.
+    const { incomingVersion } = req.body; // Capture the version tag submitted by the UI
+    const action = actionsDB.find(a => a.id === id); // Find the action the the database
 
-    // Validation: Check if the action exists and if its status is "PENDING".
-    // An action can only be executed if it's currently pending.
-    if (!action || action.status !== "PENDING"){
-        return res.status(400).json({ success: false, error: "Invalid or missing action record." });        
+    // Safeguard 1 - Basic Existence Verification
+    if (!action) {
+        return res.status(404).json({ success: false, error: "Target action record not found" });
     }
 
-    // 1. Immediate State Update:
-    // Change the action's status to "EXECUTING" immediately. This prevents the user from trying to execute the same action again
-    // (e.g., via double-clicking) and provides immediate feedback in the UI.
-    action.status = "EXECUTING";
+    // Safeguard 2 - Core Staus Boundary Check
+    if (action.status !== "PENDING") {
+        createAuditLog(
+            action.id,
+            action.propertyId,
+            "SYNC_FAILED",
+            `Execution rejected: operation is already running or completed. Status is ${action.status}.`
+        );
+        return res.status(400).json({ success: false, error: "Action state must be PENDING for execution."});
+    }
 
-    // Log that the user approved the budget change and data writeback started
+    // Safeguard 3 - Optimistic Concurrency Match Check (Blocks Race Conditions)
+    if (action.version !== incomingVersion) {
+        createAuditLog(
+            action.id,
+            action.propertyId,
+            "SYNC_FAILED",
+            `Concurrency Collision: Client snapshot (v${incomingVersion}) is out of sync with memory state (v${action.version}).`
+        );
+        return res.status(404).json({ success: false, error: "Concurrency conflict encountered. App state out of sync." });
+    }
+
+    // --- Acquire Lock Safe & Mutate Version
+    // 1. Immediate State Update:
+    // Change the action's status to EXECUTING immediately and increment its database version.
+    // This instantly breaks paralle execution threads if a multi-click slips through.
+    action.status = "EXECUTING";
+    action.version += 1; // increment version instantly to secure the db lock
+
+    // Log that the user approved the budget change, lock was secured, and version was updated
     createAuditLog(
         action.id,
         action.propertyId,
         "EXECUTION_STARTED",
-        "User authorized budget modification writeback. Handshake sequence dispatched to external ad network API."
+        `User authorized budget modification writeback. Version lock secured at v${action.version}. Handshake sequence dispatched.`
     );
 
-    // 2. Simulate Asynchronous Work:
-    // Use `setTimeout` to mimic a long-running, decoupled background process (e.g., an external API call, database write).
-    // This is a "fire and forget" operation from the perspective of this endpoint's response.
+    // 2. Simulate Asynchronous Work
+    // Use setTimeout to mimic a long-running, decoupled background process.
     setTimeout(() => {
         action.status = "SUCCESS";
 
@@ -123,15 +148,15 @@ app.post("/api/actions/:id/execute", (req, res) => {
         createAuditLog(
             action.id,
             action.propertyId,
-            'SYNC_SUCCESS',
+            "SYNC_SUCCESS",
             `Successfully synced optimized budget parameters for ${action.id}. External API returned status 200 OK.`
         );
-    }, 3000); // The simulated background task takes 3 seconds.
+    }, 3000); // the simulated background task takes 3 seconds
 
     // 3. Fast Response for Non-Blocking UI:
-    // Send a "202 Accepted" response immediately. This tells the client that the request has been accepted for processing,
-    // but the processing is not yet complete. This allows the frontend to remain responsive without waiting for the `setTimeout` to finish.
+    // Send a "202 Accepted" response immediately. This allows the frontend to remain responsive.
     res.status(202).json({ success: true, action });
+
 });
 
 // Endpoint to fetch the entire audit logging history trail

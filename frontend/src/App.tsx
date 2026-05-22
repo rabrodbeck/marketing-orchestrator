@@ -11,6 +11,7 @@ export interface AutomatedAction {
   insight: string; // A descriptive text explaining why the action was generated.
   recommendation: string; // The suggested action to be taken.
   status: "PENDING" | "EXECUTING" | "SUCCESS" | "FAILED"; // The current status of the action.
+  version: number;
 }
 
 /**

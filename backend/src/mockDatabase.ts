@@ -28,6 +28,7 @@ export interface AutomatedAction {
     recommendation: string;
     proposedValue: number;
     status: "PENDING" | "EXECUTING" | "SUCCESS" | "FAILED";
+    version: number;
     createdAt: string;
 }
 
