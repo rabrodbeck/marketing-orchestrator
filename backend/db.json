@@ -18,5 +18,35 @@
     "status": "PENDING",
     "version": 1,
     "createdAt": "2026-05-22T17:41:04.363Z"
+  },
+  {
+    "id": "act-1nhc2ukfz",
+    "propertyId": "prop-101",
+    "insight": "Oakridge Luxury Apartments matches high stability constraints at 97% occupancy, \n                        but marketing spend remains unthrottled at $5400/mo.",
+    "recommendation": "Scale back channel budget by 50% to $2700/mo to safeguard operational margins.",
+    "proposedValue": 2700,
+    "status": "PENDING",
+    "version": 1,
+    "createdAt": "2026-05-29T16:17:40.687Z"
+  },
+  {
+    "id": "act-hvzn9u6jn",
+    "propertyId": "prop-104",
+    "insight": "Summit Ridge Apartments matches high stability constraints at 97% occupancy, \n                        but marketing spend remains unthrottled at $6000/mo.",
+    "recommendation": "Scale back channel budget by 50% to $3000/mo to safeguard operational margins.",
+    "proposedValue": 3000,
+    "status": "PENDING",
+    "version": 1,
+    "createdAt": "2026-05-29T16:18:32.127Z"
+  },
+  {
+    "id": "act-a61d1ku81",
+    "propertyId": "prop-106",
+    "insight": "Pinnacle Plaza Lofts matches high stability constraints at 98% occupancy, \n                        but marketing spend remains unthrottled at $4500/mo.",
+    "recommendation": "Scale back channel budget by 50% to $2250/mo to safeguard operational margins.",
+    "proposedValue": 2250,
+    "status": "PENDING",
+    "version": 1,
+    "createdAt": "2026-05-29T16:18:32.128Z"
   }
 ]

@@ -1,7 +1,21 @@
-import express from "express"; // Import the Express.js framework to build the server
-import cors from "cors"; // Import CORS to allow cross-origin requests from the frontend
-import { propertiesDB, marketingSpendDB, actionsDB, actionsAuditLogDB, AuditLog }from "./mockDatabase"; // Import mock data for properties, marketing spend, and actions
-import { saveActions } from "./mockDatabase";
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import OpenAI from "openai";
+import {
+    propertiesDB,
+    marketingSpendDB,
+    actionsDB,
+    actionsAuditLogDB,
+    AuditLog,
+    saveActions,
+    cubeSchemaDB,
+    executeSemanticQuery
+} from "./mockDatabase";
+
+dotenv.config();
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Initialize the Express application
 const app = express();
@@ -178,6 +192,198 @@ app.post("/api/actions/:id/execute", (req, res) => {
 app.get("/api/audit-logs", (req, res) => {
     // Hand back the global array data wrapped cleanly in a success object
     res.json({ success: true, logs: actionsAuditLogDB });
+});
+
+// Cube.js Semantic Simulation Endpoints
+/**
+ * GET /api/cube-metadata
+ * Purpose: Returns the schema structure of available cubes to the LLM browse.
+ */
+app.get("/api/cube-metadata", (req, res) => {
+    res.json({ success: true, cubes: cubeSchemaDB })
+});
+
+/**
+ * POST /api/query-analytics
+ * Purpose: Executes an isolated semantic layer query. Prevents LLMs from writing direct SQL.
+ */
+app.post("/api/query-analytics", (req, res) => {
+    try {
+        const query = req.body.query;
+        if (!query || !query.cube || !query.measures ) {
+            return res.status(400).json({ success: false, error: "Invalid query payload structural schema." });
+        }
+        const results = executeSemanticQuery(query);
+        res.json({ success: true, data: results });
+    } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// Real OpenAI Copilot Agent Chat Endpoint with Tool Calling & Telemetry Logs
+interface ChatMessage {
+    role: "user" | "assistant" | "system";
+    content: string;
+}
+
+/**
+ * POST /api/copilot/chat
+ * Purpose: Takes conversation history, runs live OpenAI Tool Calling agent cubes, and pushes
+ * structural execution traces directly back to the Telemetry Log Feed.
+ */
+app.post("/api/copilot/chat", async (req, res) => {
+    const { messages }: { messages: ChatMessage[] } = req.body;
+    
+    // RESOLVES ISSUE 1: Safety guard to guarantee messages array is not empty
+    const lastMessage = messages && messages.length > 0 ? messages[messages.length - 1] : null;
+    if (!lastMessage) {
+        return res.status(400).json({ success: false, error: "Conversation history cannot be empty." });
+    }
+
+    // Generate unique action log ID for telemetry monitoring
+    const actionId = `chat-agent-${Math.random().toString(36).substr(2, 5)}`;
+    
+    // Helper to log thoughts and tool calls directly into our existing Telemetry Stream UI
+    const logTrace = (message: string) => {
+        actionsAuditLogDB.push({
+            id: `log-${Math.random().toString(36).substr(2, 9)}`,
+            actionId,
+            propertyId: "AGENT_ORCHESTRATOR",
+            eventType: "EXECUTION_STARTED",
+            message,
+            timestamp: new Date().toISOString()
+        });
+        console.log(`[AGENT TELEMETRY] ${message}`);
+    };
+
+    logTrace(`Inbound chat query acquired: "${lastMessage.content}"`);
+
+    try {
+        // Define system prompt with exact guidelines from the CTO screenshot
+        const systemPrompt = `You are a specialized occupancy analyst and conversational assistant. Your role is to answer questions about occupancy performance with precision and expert insight.
+Use your analytical tools to pull live data. Always call the appropriate tool before forming your response.
+## Output Formatting Rules
+- Present rates as percentages (e.g., 94.2%, not 0.942)
+- Present currency with a dollar sign and two decimal places (e.g. $2,800.00)
+- Round unit counts to whole numbers
+- Never reference tool names, cube names, field identifiers, or internal system terms in your conversation (e.g., do NOT mention 'OccupancyCube' or 'execute_semantic_query')
+- Never use underscores or code-style identifiers in your responses
+- Do not explain which tools you called - say "your data shows" or "the analytics indicate"
+- For period-over-period comparisons: run two queries, compute the delta, and state the direction and magnitude of change clearly
+- Security: never reference organization identifiers, user identifiers, or system names`;
+
+        // Format history for OpenAI
+        const fullConversation = [
+            { role: "system", content: systemPrompt },
+            ...messages.map(m => ({ role: m.role, content: m.content }))
+        ];
+
+        // Declare semantic query tools to OpenAI
+        const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+            {
+                type: "function",
+                function: {
+                    name: "execute_semantic_query",
+                    description: "Queries the property data semantic layer. Use this to pull occupancy performance, marketing spend, or upcoming lease expirations.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            cube: {
+                                type: "string",
+                                enum: ["OccupancyCube", "MarketingSpendCube", "LeaseRiskCube"],
+                                description: "The target cube name to query"
+                            },
+                            measures: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "The analytical metrics to retrieve (e.g., occupancyRate, totalUnits, occupiedUnits, monthlySpend, monthlyRent)"
+                            },
+                            dimensions: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "The grouping attributes to retrieve (e.g., name, propertyId, channel, unitType, expirationDate). ALWAYS include 'name' when querying OccupancyCube so that you have the human-readable property names for the user."
+                            }
+                        },
+                        required: ["cube", "measures"]
+                    }
+                }
+            }
+        ];
+
+        logTrace("Step 1: Contacting OpenAI Agent Orchestrator with system and history prompts...");
+
+        // Initial LLM evaluation call
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini", // Cost-effective, high-speed model with robust tool-calling support
+            messages: fullConversation as any,
+            tools: tools,
+            tool_choice: "auto"
+        });
+
+        // RESOLVES ISSUE 2: Safe evaluation of choices array
+        const responseChoice = response.choices[0];
+        if (!responseChoice) {
+            throw new Error("OpenAI API returned an empty choices array.");
+        }
+        const responseMessage = responseChoice.message;
+
+        // RESOLVES ISSUES 3, 4 & 5: Optional chaining with direct truthy narrowing 
+        const toolCall = responseMessage.tool_calls?.[0];
+        if (toolCall) {
+            logTrace(`Step 2: OpenAI dispatched Tool Call: ${toolCall.function.name}`);
+            
+            const functionArgs = JSON.parse(toolCall.function.arguments);
+            logTrace(`[TOOL CALL] Executing semantic query: ${JSON.stringify(functionArgs)}`);
+
+            // Execute the structured query against our datastore
+            const queryResults = executeSemanticQuery(functionArgs);
+            logTrace(`Step 3: Query success. Retrieved: ${JSON.stringify(queryResults)}`);
+            logTrace("Step 4: Feeding data payload back to OpenAI to finalize the analysis...");
+
+            // Provide tool results back to OpenAI
+            const secondResponse = await openai.chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    ...messages.map(m => ({ role: m.role, content: m.content })),
+                    responseMessage,
+                    {
+                        role: "tool",
+                        tool_call_id: toolCall.id,
+                        content: JSON.stringify(queryResults)
+                    }
+                ] as any
+            });
+
+            // RESOLVES ISSUE 6: Safe evaluation of second choices array
+            const secondChoice = secondResponse.choices[0];
+            const finalContent = secondChoice?.message?.content || "";
+            
+            logTrace("Step 5: Formatting rules applied. Dispatched finalized response back to interface.");
+
+            return res.json({
+                success: true,
+                message: {
+                    role: "assistant",
+                    content: finalContent
+                }
+            });
+        }
+
+        // Standard text response (no tool was needed)
+        logTrace("Step 2: No tool call required. Yielding standard informational prompt.");
+        res.json({
+            success: true,
+            message: {
+                role: "assistant",
+                content: responseMessage.content || "I am standing by as your occupancy analyst. Ask me about your property metrics!"
+            }
+        });
+
+    } catch (err: any) {
+        logTrace(`CRITICAL AGENT ERROR: ${err.message}`);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 /**

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react"; // Import React core, and the useState/useEffect hooks for managing component state and side effects.
 import ActionCard from "./components/ActionCard"; // Import the ActionCard component to display individual automated actions.
 import TelemetryPanel from "./components/TelemetryPanel";
+import ChatCopilot from "./components/ChatCopilot";
 
 /**
  * Defines the structure for an AutomatedAction object.
@@ -32,6 +33,8 @@ export default function App() {
 
   // `globalError` state variable handles error string capture for structural UI fallback rendering.
   const [globalError, setGlobalError] = useState<string | null>(null);
+
+  const [copilotOpen, setCopilotOpen] = useState(false);
 
   /**
    * --- Core Logic: Triggering the Analysis Pipeline ---
@@ -97,41 +100,25 @@ export default function App() {
   }, []); // empty dependency array => run one on initial page mount
 
   /**
-   * --- React Lifecycle: Polling for Asynchronous Updates ---
-   * This `useEffect` hook sets up a polling mechanism to regularly fetch updated action statuses from the backend.
-   * It's crucial for reflecting asynchronous updates (like an action changing from "EXECUTING" to "SUCCESS").
+   * React Lifecycle: Polls if there is an executing card OR if the copilot drawer is active
+   * to ensure we pull both sync logs and chat agent reasoning logs in real-time.
    */
   useEffect(() => {
-    // Condition for polling: Only poll if there is at least one action with "EXECUTING" status.
-    // This optimizes by not polling unnecessarily.
-    if (actions.some(a => a.status === 'EXECUTING')) {
-      // Fire an immediate capture hook to seize the inital starting log event
+    if (actions.some(a => a.status === 'EXECUTING') || copilotOpen) {
       fetchTelemetryLogs();
-
       const interval = window.setInterval(async () => {
-        // Worker Task A: Query updated status properties for state cards
         try {
-          // Make a GET request to the backend's /api/actions endpoint to get the latest actions.
           const res = await fetch('http://localhost:4000/api/actions');
-          const data = await res.json(); // Parse the JSON response.
-          
-          // If successful, update the `actions` state with the freshest data from the backend.
+          const data = await res.json();
           if (data.success) setActions(data.actions);
         } catch (e) {
-          // Log any errors that occur during the fetch operation.
           console.error(e);
         }
-
-        // Worker Task B: Ingest the latest systemic audit logs from backend memory
         fetchTelemetryLogs();
-      }, 1500); // Polling interval.
-
-      // Cleanup function: This is vital to prevent memory leaks.
-      // When the component unmounts or the `actions` dependency changes (and polling is no longer needed),
-      // this function clears the interval, stopping the polling.
+      }, 1500);
       return () => clearInterval(interval);
     }
-  }, [actions]); // Dependency array: This effect re-runs whenever the `actions` state changes.
+  }, [actions, copilotOpen]); // Added copilotOpen to trigger polling when chat starts
 
   // --- Component Rendering ---
   return (
@@ -142,14 +129,22 @@ export default function App() {
           <h1 className="text-2xl font-bold tracking-tight text-white">Marketing Orchestrator Engine</h1>
           <p className="text-xs text-slate-400 mt-0.5">Asynchronous Data Orchestration Proof of Concept</p>
         </div>
-         {/* Button to trigger the analysis pipeline */}
-        <button 
-            onClick={triggerPipeline} // Calls `triggerPipeline` when clicked.
-            disabled={running} // Button is disabled if `running` state is true (pipeline is active).
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 font-medium text-xs px-4 py-2 rounded-md shadow"
-          >
-          {running ? 'Ingesting Feeds...' : 'Execute System Diagnostics'} {/* Dynamic button text based on `running` state. */}
-        </button>
+                  {/* Buttons to trigger the new Copilot and the analysis pipeline */}
+         <div className="flex space-x-3">
+           <button 
+             onClick={() => setCopilotOpen(true)}
+             className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs px-4 py-2 rounded-md shadow border border-slate-700"
+           >
+             💬 Launch AI Copilot
+           </button>
+           <button 
+             onClick={triggerPipeline} 
+             disabled={running} 
+             className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 font-medium text-xs px-4 py-2 rounded-md shadow"
+           >
+             {running ? 'Ingesting Feeds...' : 'Execute System Diagnostics'}
+           </button>
+         </div>
       </div>
 
       {/* Global Application Systemic Alert Error Banner Block */}
@@ -188,6 +183,7 @@ export default function App() {
       <footer className="max-w-4xl mx-auto mt-8 pb-12">
         <TelemetryPanel logs={logs} />
       </footer>
+      <ChatCopilot isOpen={copilotOpen} onClose={() => setCopilotOpen(false)} />
     </div>
   );
 }
