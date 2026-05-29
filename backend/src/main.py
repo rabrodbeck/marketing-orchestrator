@@ -11,7 +11,7 @@ from openai import OpenAI
 
 # Load env variables and setup database
 from mockDatabase import (
-    propertiesDb,
+    propertiesDB,
     marketingSpendDB,
     actionsDB,
     actionsAuditLogDB,
@@ -47,7 +47,7 @@ class ChatMessage(BaseModel):
     content: str
 
 class ChatPayload(BaseModel):
-    message: List[ChatMessage]
+    messages: List[ChatMessage]
 
 # 2. Shared Audit Logger
 def create_audit_log(action_id: str, property_id: str, event_type: str, message: str):
@@ -69,7 +69,7 @@ def simulate_background_sync(action_id: str, property_id: str):
 
     # Locate and transition status
     for action in actionsDB:
-        if action["id"] == action.id:
+        if action["id"] == action_id:
             action["status"] = "SUCCESS"
             save_actions(actionsDB)
             create_audit_log(
@@ -87,31 +87,31 @@ def get_actions():
 
 @app.post("/api/analyze")
 def trigger_analysis():
-    for proeprty in propertiesDb:
-        if property["totalUnits"] == 0:
+    # FIXED: Renamed loop variable from 'property' to 'prop' to avoid Python keyword collision
+    for prop in propertiesDB:
+        if prop["totalUnits"] == 0:
             continue
+            
+        occupancy_rate = prop["occupiedUnits"] / prop["totalUnits"]
+        marketing = next((m for m in marketingSpendDB if m["propertyId"] == prop["id"]), None)
 
-        occupancy_rate = property["occupiedUnits"] / property["totalUnits"]
-        marketing = next((m for m in marketingSpendDB if m["prppertyId"] == property["id"]), None)
-        
-        # Anomaly criteria
+        # Anomaly criteria (matching original rules)
         if marketing and occupancy_rate >= 0.92 and marketing["monthlySpend"] >= 3000:
             # Check for existing action locks
             has_recent = False
             for a in actionsDB:
-                if a["propertyId"] == property["id"]:
+                if a["propertyId"] == prop["id"]:
                     is_pending_or_executing = a["status"] in ["PENDING", "EXECUTING"]
-                    # If succeeded in last 24 hours, block duplicate creation
                     if is_pending_or_executing:
                         has_recent = True
                         break
-
+            
             if not has_recent:
                 proposed_reduction = round(marketing["monthlySpend"] * 0.50)
                 new_action = {
                     "id": f"act-{random.randint(100000, 999999)}",
-                    "propertyId": property["id"],
-                    "insight": f"{property['name']} matches high stability constraints at {int(occupancy_rate * 100)}% occupancy, but marketing spend remains unthrottled at ${marketing['monthlySpend']}/mo.",
+                    "propertyId": prop["id"],
+                    "insight": f"{prop['name']} matches high stability constraints at {int(occupancy_rate * 100)}% occupancy, but marketing spend remains unthrottled at ${marketing['monthlySpend']}/mo.",
                     "recommendation": f"Scale back channel budget by 50% to ${proposed_reduction}/mo to safeguard operational margins.",
                     "proposedValue": proposed_reduction,
                     "status": "PENDING",
@@ -234,7 +234,7 @@ Use your analytical tools to pull live data. Always call the appropriate tool be
                             "measures": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "The analytical metrics to retrieve (e.g., occupancyRate, totalUnits, occupiedUnits, monthlySpend, monthlyRent)"
+                                "description": "The analytical metrics to retrieve (e.g., occupancyRate, targetRate, totalUnits, occupiedUnits, monthlySpend, monthlyRent). ALWAYS include 'targetRate' when comparing occupancy performance against target goals."
                             },
                             "dimensions": {
                                 "type": "array",

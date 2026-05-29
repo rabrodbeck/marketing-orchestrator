@@ -25,8 +25,8 @@
     "insight": "Oakridge Luxury Apartments matches high stability constraints at 97% occupancy, \n                        but marketing spend remains unthrottled at $5400/mo.",
     "recommendation": "Scale back channel budget by 50% to $2700/mo to safeguard operational margins.",
     "proposedValue": 2700,
-    "status": "PENDING",
-    "version": 1,
+    "status": "SUCCESS",
+    "version": 2,
     "createdAt": "2026-05-29T16:17:40.687Z"
   },
   {

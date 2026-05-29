@@ -48,7 +48,7 @@ class OccupancyTarget(BaseModel):
     targetRate: float
 
 # 2. In-Memory Datasets
-propertiesDb: List[Dict[str, Any]] = [
+propertiesDB: List[Dict[str, Any]] = [
     {"id": "prop-101", "name": "Oakridge Luxury Apartments", "totalUnits": 200, "occupiedUnits": 194},
     {"id": "prop-102", "name": "Riverfront Micro-Lofts", "totalUnits": 100, "occupiedUnits": 95},
     {"id": "prop-103", "name": "Highland Heights Townhomes", "totalUnits": 150, "occupiedUnits": 120},
@@ -117,7 +117,8 @@ cubeSchemaDB = [
             {"name": "name", "type": "dimension", "description": "Property Name"},
             {"name": "totalUnits", "type": "measure", "description": "Total physical units in building"},
             {"name": "occupiedUnits", "type": "measure", "description": "Number of currently leased units"},
-            {"name": "occupancyRate", "type": "measure", "description": "Calculated ratio: occupiedUnits/totalUnits"}
+            {"name": "occupancyRate", "type": "measure", "description": "Calculated ratio: occupiedUnits/totalUnits"},
+            {"name": "targetRate", "type": "measure", "description": "The target occupancy rate for this property"}
         ]
     },
     {
@@ -170,9 +171,10 @@ def execute_semantic_query(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "name": p["name"],
                 "totalUnits": p["totalUnits"],
                 "occupiedUnits": p["occupiedUnits"],
-                "occupancyRates": round(p["occupiedUnits"] / p["totalUnits"], 3)
+                "occupancyRates": round(p["occupiedUnits"] / p["totalUnits"], 3),
+                "targetRate": next((t["targetRate"] for t in occupancyTargetsDB if t["propertyId"] == p["id"]), 0.95)
             }
-            for p in propertiesDb
+            for p in propertiesDB
         ]
     elif cube_name == "MarketingSpendCube":
         dataset = marketingSpendDB
@@ -196,7 +198,7 @@ def execute_semantic_query(query: Dict[str, Any]) -> List[Dict[str, Any]]:
                     filtered_dataset.append(item)
         dataset = filtered_dataset
 
-    # Projection selection
+        # Projection selection
     selected_fields = list(measures) + list(dimensions or [])
     projected_dataset = []
     for item in dataset:
@@ -204,5 +206,6 @@ def execute_semantic_query(query: Dict[str, Any]) -> List[Dict[str, Any]]:
         for f in selected_fields:
             if f in item:
                 projection[f] = item[f]
+        projected_dataset.append(projection)  # <--- ADD THIS LINE HERE!
 
     return projected_dataset
