@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  cube:
+    image: cubejs/cube:v0.35.0
+    ports:
+      - "4000:4000"
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - CUBEJS_DB_TYPE=postgres
+      - CUBEJS_DB_HOST=${SUPABASE_DB_HOST}
+      - CUBEJS_DB_NAME=${SUPABASE_DB_NAME}
+      - CUBEJS_DB_USER=${SUPABASE_DB_USER}
+      - CUBEJS_DB_PASS=${SUPABASE_DB_PASS}
+      - CUBEJS_DB_PORT=${SUPABASE_DB_PORT}
+      - CUBEJS_DB_SSL=true
+      - CUBEJS_API_SECRET=${CUBEJS_API_SECRET}
+    volumes:
+      - .:/cube/conf
