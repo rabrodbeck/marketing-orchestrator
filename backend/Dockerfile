@@ -19,7 +19,7 @@ WORKDIR /cube/conf
 COPY . /cube/conf
 
 # Install Python package dependencies globally in the container
-RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Make our startup entrypoint script executable
 RUN chmod +x /cube/conf/start.sh
