@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 interface Message {
     role: "user" | "assistant";
     content: string;
@@ -35,7 +37,7 @@ export default function ChatCopilot({ isOpen, onClose }: ChatCopilotProps) {
         setLoading(true);
 
         try{
-            const response = await fetch("http://localhost:8000/api/copilot/chat", {
+              const response = await fetch(`${API_BASE_URL}/api/copilot/chat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ messages: [...messages, userMessage ]}),

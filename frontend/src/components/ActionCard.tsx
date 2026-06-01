@@ -1,6 +1,8 @@
 import React from "react"
 import { type AutomatedAction } from "../App"
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 interface CardProps {
 	action: AutomatedAction;
 	setActions: React.Dispatch<React.SetStateAction<AutomatedAction[]>>;
@@ -13,7 +15,7 @@ export default function ActionCard({ action, setActions }: CardProps) {
 
 		try {
 			// Dispatch POST payload attaching current version integer context
-			const res = await fetch(`http://localhost:8000/api/actions/${action.id}/execute`, {
+					const res = await fetch(`${API_BASE_URL}/api/actions/${action.id}/execute`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json" // required to inform express parser middleware
