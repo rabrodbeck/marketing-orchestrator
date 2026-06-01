@@ -13,7 +13,7 @@ export default function ActionCard({ action, setActions }: CardProps) {
 
 		try {
 			// Dispatch POST payload attaching current version integer context
-			const res = await fetch(`http://localhost:4000/api/actions/${action.id}/execute`, {
+			const res = await fetch(`http://localhost:8000/api/actions/${action.id}/execute`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json" // required to inform express parser middleware

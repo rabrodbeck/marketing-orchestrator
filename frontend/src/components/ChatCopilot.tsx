@@ -35,7 +35,7 @@ export default function ChatCopilot({ isOpen, onClose }: ChatCopilotProps) {
         setLoading(true);
 
         try{
-            const response = await fetch("http://localhost:4000/api/copilot/chat", {
+            const response = await fetch("http://localhost:8000/api/copilot/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ messages: [...messages, userMessage ]}),

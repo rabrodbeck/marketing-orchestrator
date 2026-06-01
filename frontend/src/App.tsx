@@ -47,7 +47,7 @@ export default function App() {
 
     try {
       // Make a POST request to the backend to trigger the analysis.
-      const res = await fetch("http://localhost:4000/api/analyze", {
+      const res = await fetch("http://localhost:8000/api/analyze", {
         method: "POST" // Specify the HTTP method as POST.
       });
 
@@ -70,7 +70,7 @@ export default function App() {
 
   const fetchTelemetryLogs = async () => {
     try {
-      const res = await fetch("http://localhost:4000/api/audit-logs");
+      const res = await fetch("http://localhost:8000/api/audit-logs");
       const data = await res.json();
       if (data.success) {
         // Reverse the array records so that the newest logs are always pinned at the top
@@ -85,7 +85,7 @@ export default function App() {
     const hydrateDashboardOnBoot = async () => {
       try {
         // Fetch any existing actions from db.json
-        const actionRes = await fetch("http://localhost:4000/api/actions");
+        const actionRes = await fetch("http://localhost:8000/api/actions");
         const actionsData = await actionRes.json();
         if (actionsData.success) setActions(actionsData.actions);
 
@@ -108,7 +108,7 @@ export default function App() {
       fetchTelemetryLogs();
       const interval = window.setInterval(async () => {
         try {
-          const res = await fetch('http://localhost:4000/api/actions');
+          const res = await fetch('http://localhost:8000/api/actions');
           const data = await res.json();
           if (data.success) setActions(data.actions);
         } catch (e) {

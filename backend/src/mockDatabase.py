@@ -1,13 +1,17 @@
 import os
 import json
 import random
+import time
+import jwt  # For signing CubeJS REST credentials
+import httpx  # For dispatching secure requests to the CubeJS API
 from typing import List, Dict, Optional, Any, Literal
 from pydantic import BaseModel, Field
 
 # Persistence file location (same as node db)
 DB_FILE = os.path.join(os.getcwd(), "db.json")
 
-# 1. Core Data Interfaces
+# --- 1. Core Data Interfaces ---
+
 class Property(BaseModel):
     id: str
     name: str
@@ -22,6 +26,7 @@ class MarketingSpend(BaseModel):
 class AutomatedAction(BaseModel):
     id: str
     propertyId: str
+    insight: str
     recommendation: str
     proposedValue: int
     status: Literal["PENDING", "EXECUTING", "SUCCESS", "FAILED"]
@@ -31,9 +36,9 @@ class AutomatedAction(BaseModel):
 class AuditLog(BaseModel):
     id: str
     actionId: str
-    propertId: str
-    eventType: Literal["EXECUTION_STARTING", "SYNC_SUCCESS", "SYNC_FAILED"]
-    messsage: str
+    propertyId: str
+    eventType: Literal["EXECUTION_STARTED", "SYNC_SUCCESS", "SYNC_FAILED"]
+    message: str
     timestamp: str
 
 class LeaseExpiration(BaseModel):
@@ -44,10 +49,11 @@ class LeaseExpiration(BaseModel):
     monthlyRent: int
 
 class OccupancyTarget(BaseModel):
-    propertyId: int
+    propertyId: str
     targetRate: float
 
-# 2. In-Memory Datasets
+# --- 2. In-Memory Datasets (Kept for FastAPI Diagnostics Card operations) ---
+
 propertiesDB: List[Dict[str, Any]] = [
     {"id": "prop-101", "name": "Oakridge Luxury Apartments", "totalUnits": 200, "occupiedUnits": 194},
     {"id": "prop-102", "name": "Riverfront Micro-Lofts", "totalUnits": 100, "occupiedUnits": 95},
@@ -88,7 +94,8 @@ occupancyTargetsDB: List[Dict[str, Any]] = [
 
 actionsAuditLogDB: List[Dict[str, Any]] = []
 
-# 3. Persistence Handlers
+# --- 3. Persistence Handlers ---
+
 def load_actions() -> List[Dict[str, Any]]:
     try:
         if os.path.exists(DB_FILE):
@@ -104,10 +111,11 @@ def save_actions(actions: List[Dict[str, Any]]):
             json.dump(actions, f, indent=2)
     except Exception as e:
         print("Critical I/O error writing to file storage layer.", e)
-    
+
 actionsDB: List[Dict[str, Any]] = load_actions()
 
-# 4. Semantic Cube Definitions (Cube.js Simulation)
+# --- 4. Semantic Cube Definitions (Cube.js Simulation) ---
+
 cubeSchemaDB = [
     {
         "name": "OccupancyCube",
@@ -143,69 +151,72 @@ cubeSchemaDB = [
     }
 ]
 
-# 5 Semantic Query Processor
-class QueryFilter(BaseModel):
-    field: str
-    operator: Literal["equals", "greaterThan", "lessThan"]
-    value: Any
+# --- 5. Real CubeJS REST Integration ---
 
-class CubeQueryModel(BaseModel):
-    cube: Literal["OccupancyCube", "MarketingSpendCube", "LeaseRiskCube"]
-    measures: List[str]
-    dimensions: Optional[List[str]] = None
-    filter: Optional[QueryFilter] = None
+CUBEJS_API_SECRET = os.getenv("CUBEJS_API_SECRET", "super_secret_token_1234567890")
+
+def generate_cube_token() -> str:
+    # Sign a JWT payload that CubeJS expects for authentication
+    payload = {
+        "exp": int(time.time()) + 3600  # Token expires in 1 hour
+    }
+    return jwt.encode(payload, CUBEJS_API_SECRET, algorithm="HS256")
 
 def execute_semantic_query(query: Dict[str, Any]) -> List[Dict[str, Any]]:
+    # 1. Format query for official CubeJS REST specifications
+    # CubeJS maps names like OccupancyCube.name, OccupancyCube.occupancyRate
     cube_name = query.get("cube")
-    measures = query.get("measures", [])
-    dimensions = query.get("dimensions", [])
-    query_filter = query.get("filter")
+    measures = [f"{cube_name}.{m}" for m in query.get("measures", [])]
+    dimensions = [f"{cube_name}.{d}" for d in query.get("dimensions", [])]
+    
+    cube_query = {
+        "measures": measures,
+        "dimensions": dimensions
+    }
 
-    dataset = []
+    # Format filters
+    if query.get("filter"):
+        f = query["filter"]
+        op_map = {
+            "equals": "equals",
+            "greaterThan": "gt",
+            "lessThan": "lt"
+        }
+        cube_query["filters"] = [{
+            "member": f"{cube_name}.{f['field']}",
+            "operator": op_map.get(f["operator"], "equals"),
+            "values": [str(f["value"])]
+        }]
 
-    # Map target datasets
-    if cube_name == "OccupancyCube":
-        dataset = [
-            {
-                "id": p["id"],
-                "name": p["name"],
-                "totalUnits": p["totalUnits"],
-                "occupiedUnits": p["occupiedUnits"],
-                "occupancyRates": round(p["occupiedUnits"] / p["totalUnits"], 3),
-                "targetRate": next((t["targetRate"] for t in occupancyTargetsDB if t["propertyId"] == p["id"]), 0.95)
-            }
-            for p in propertiesDB
-        ]
-    elif cube_name == "MarketingSpendCube":
-        dataset = marketingSpendDB
-    elif cube_name == "LeaseRiskCube":
-        dataset = leaseExpirationsDB
+    # 2. Fire HTTP request to local CubeJS REST port 4000
+    token = generate_cube_token()
+    headers = {
+        "Authorization": token,
+        "Content-Type": "application/json"
+    }
 
-    # Apply Filter logic
-    if query_filter:
-        field = query.filter.get("field")
-        op = query_filter.get("operator")
-        val = query_filter.get("value")
-
-        filtered_dataset = []
-        for item in dataset:
-            if field in item:
-                if op == "equals" and item[field] == val:
-                    filtered_dataset.append(item)
-                elif op == "greaterThan" and item[field] > val:
-                    filtered_dataset.append(item)
-                elif op == "lessThan" and item[field] < val:
-                    filtered_dataset.append(item)
-        dataset = filtered_dataset
-
-        # Projection selection
-    selected_fields = list(measures) + list(dimensions or [])
-    projected_dataset = []
-    for item in dataset:
-        projection = {}
-        for f in selected_fields:
-            if f in item:
-                projection[f] = item[f]
-        projected_dataset.append(projection)  # <--- ADD THIS LINE HERE!
-
-    return projected_dataset
+    with httpx.Client() as client:
+        # Calls the load endpoint on Docker container running on port 4000
+        response = client.post(
+            "http://localhost:4000/cubejs-api/v1/load",
+            json={"query": cube_query},
+            headers=headers
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"CubeJS returned error status {response.status_code}: {response.text}")
+            
+        data = response.json()
+        
+        # 3. Clean up keys from "OccupancyCube.occupancyRate" back to "occupancyRate" for LLM output compatibility!
+        raw_results = data.get("data", [])
+        cleaned_results = []
+        
+        for row in raw_results:
+            cleaned_row = {}
+            for k, v in row.items():
+                cleaned_key = k.split(".")[-1] # strips 'OccupancyCube.' prefix
+                cleaned_row[cleaned_key] = v
+            cleaned_results.append(cleaned_row)
+            
+        return cleaned_results
