@@ -17,5 +17,6 @@ services:
       - CUBEJS_DB_PORT=${SUPABASE_DB_PORT}
       - CUBEJS_DB_SSL=true
       - CUBEJS_API_SECRET=${CUBEJS_API_SECRET}
+      - CUBEJS_DEV_MODE=${CUBEJS_DEV_MODE}
     volumes:
       - .:/cube/conf

@@ -14,12 +14,12 @@ cube(`OccupancyCube`, {
     },
     occupancyRate: {
       sql: `CAST(occupiedunits AS float) / totalunits`,
-      type: `number`,
+      type: `avg`,
       description: `Calculated occupancy ratio`
     },
     targetRate: {
       sql: `targetrate`,
-      type: `number`,
+      type: `avg`,
       description: `Stated target occupancy rate`
     }
   },

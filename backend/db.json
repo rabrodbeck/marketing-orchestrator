@@ -48,5 +48,15 @@
     "status": "PENDING",
     "version": 1,
     "createdAt": "2026-05-29T16:18:32.128Z"
+  },
+  {
+    "id": "act-970884",
+    "propertyId": "prop-101",
+    "insight": "Oakridge Luxury Apartments matches high stability constraints at 97% occupancy, but marketing spend remains unthrottled at $5400/mo.",
+    "recommendation": "Scale back channel budget by 50% to $2700/mo to safeguard operational margins.",
+    "proposedValue": 2700,
+    "status": "SUCCESS",
+    "version": 2,
+    "createdAt": "2026-06-01T16:21:30.146340Z"
   }
 ]
