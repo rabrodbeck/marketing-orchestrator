@@ -1,5 +1,5 @@
 cube(`MarketingSpendCube`, {
-  sql: `SELECT * FROM marketing_spend`,
+  sql: `SELECT m.*, p.name FROM marketing_spend m JOIN properties p ON m.propertyid = p.id`,
 
   measures: {
     monthlySpend: {
@@ -14,6 +14,10 @@ cube(`MarketingSpendCube`, {
       sql: `propertyid`,
       type: `string`,
       primaryKey: true
+    },
+    name: {
+      sql: `name`,
+      type: `string`
     },
     channel: {
       sql: `channel`,

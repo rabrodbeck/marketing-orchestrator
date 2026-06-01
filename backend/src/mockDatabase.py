@@ -4,11 +4,29 @@ import random
 import time
 import jwt  # For signing CubeJS REST credentials
 import httpx  # For dispatching secure requests to the CubeJS API
+import psycopg2
+from dotenv import load_dotenv
 from typing import List, Dict, Optional, Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-# Persistence file location (same as node db)
-DB_FILE = os.path.join(os.getcwd(), "db.json")
+# Load credentials from .env
+load_dotenv()
+
+DB_HOST = os.getenv("SUPABASE_DB_HOST") 
+DB_NAME = os.getenv("SUPABASE_DB_NAME")
+DB_USER = os.getenv("SUPABASE_DB_USER")
+DB_PASS = os.getenv("SUPABASE_DB_PASS") 
+DB_PORT = os.getenv("SUPABASE_DB_PORT")
+
+def get_db_connection():
+    return psycopg2.connect(
+        host=DB_HOST,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASS,
+        port=DB_PORT,
+        sslmode="require"
+    )
 
 # --- 1. Core Data Interfaces ---
 
@@ -52,67 +70,164 @@ class OccupancyTarget(BaseModel):
     propertyId: str
     targetRate: float
 
-# --- 2. In-Memory Datasets (Kept for FastAPI Diagnostics Card operations) ---
+# --- 2. Database Fetchers for properties and spend ---
 
-propertiesDB: List[Dict[str, Any]] = [
-    {"id": "prop-101", "name": "Oakridge Luxury Apartments", "totalUnits": 200, "occupiedUnits": 194},
-    {"id": "prop-102", "name": "Riverfront Micro-Lofts", "totalUnits": 100, "occupiedUnits": 95},
-    {"id": "prop-103", "name": "Highland Heights Townhomes", "totalUnits": 150, "occupiedUnits": 120},
-    {"id": "prop-104", "name": "Summit Ridge Apartments", "totalUnits": 300, "occupiedUnits": 291},
-    {"id": "prop-105", "name": "Bella Vista Condos", "totalUnits": 80, "occupiedUnits": 78},
-    {"id": "prop-106", "name": "Pinnacle Plaza Lofts", "totalUnits": 250, "occupiedUnits": 245}
-]
-
-marketingSpendDB: List[Dict[str, Any]] = [
-    {"propertyId": "prop-101", "channel": "Google Ads", "monthlySpend": 5400},
-    {"propertyId": "prop-102", "channel": "ILS Listing", "monthlySpend": 3200},
-    {"propertyId": "prop-103", "channel": "Google Ads", "monthlySpend": 6200},
-    {"propertyId": "prop-104", "channel": "Google Ads", "monthlySpend": 6000},
-    {"propertyId": "prop-105", "channel": "Meta Ads", "monthlySpend": 1200},
-    {"propertyId": "prop-106", "channel": "Meta Ads", "monthlySpend": 4500}
-]
-
-leaseExpirationsDB: List[Dict[str, Any]] = [
-    {"id": "lease-1", "propertyId": "prop-101", "unitType": "2BR Luxury", "expirationDate": "2026-06-15", "monthlyRent": 2800},
-    {"id": "lease-2", "propertyId": "prop-101", "unitType": "1BR Classic", "expirationDate": "2026-07-01", "monthlyRent": 2100},
-    {"id": "lease-3", "propertyId": "prop-102", "unitType": "Studio Loft", "expirationDate": "2026-06-30", "monthlyRent": 1800},
-    {"id": "lease-4", "propertyId": "prop-103", "unitType": "3BR Townhome", "expirationDate": "2026-06-10", "monthlyRent": 3200},
-    {"id": "lease-5", "propertyId": "prop-103", "unitType": "2BR Townhome", "expirationDate": "2026-07-15", "monthlyRent": 2600},
-    {"id": "lease-6", "propertyId": "prop-104", "unitType": "1BR Standard", "expirationDate": "2026-06-25", "monthlyRent": 1950},
-    {"id": "lease-7", "propertyId": "prop-104", "unitType": "2BR Deluxe", "expirationDate": "2026-08-01", "monthlyRent": 2500},
-    {"id": "lease-8", "propertyId": "prop-106", "unitType": "2BR Penthouse", "expirationDate": "2026-06-20", "monthlyRent": 4800}
-]
-
-occupancyTargetsDB: List[Dict[str, Any]] = [
-    {"propertyId": "prop-101", "targetRate": 0.95},
-    {"propertyId": "prop-102", "targetRate": 0.90},
-    {"propertyId": "prop-103", "targetRate": 0.92},
-    {"propertyId": "prop-104", "targetRate": 0.95},
-    {"propertyId": "prop-105", "targetRate": 0.94},
-    {"propertyId": "prop-106", "targetRate": 0.95}
-]
-
-actionsAuditLogDB: List[Dict[str, Any]] = []
-
-# --- 3. Persistence Handlers ---
-
-def load_actions() -> List[Dict[str, Any]]:
+def get_all_properties() -> List[Dict[str, Any]]:
     try:
-        if os.path.exists(DB_FILE):
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, totalunits, occupiedunits FROM properties")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return [{"id": r[0], "name": r[1], "totalUnits": r[2], "occupiedUnits": r[3]} for r in rows]
     except Exception as e:
-        print("Failed to read persistence file. Initializing empty collection.", e)
-    return []
+        print("Error fetching properties from DB:", e)
+        return []
 
-def save_actions(actions: List[Dict[str, Any]]):
+def get_all_marketing_spend() -> List[Dict[str, Any]]:
     try:
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(actions, f, indent=2)
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT propertyid, channel, monthlyspend FROM marketing_spend")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return [{"propertyId": r[0], "channel": r[1], "monthlySpend": r[2]} for r in rows]
     except Exception as e:
-        print("Critical I/O error writing to file storage layer.", e)
+        print("Error fetching marketing spend from DB:", e)
+        return []
 
-actionsDB: List[Dict[str, Any]] = load_actions()
+# --- 3. Persistence Handlers using Supabase Cloud PostgreSQL ---
+
+def get_actions() -> List[Dict[str, Any]]:
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, propertyid, insight, recommendation, proposedvalue, status, version, createdat FROM automated_actions ORDER BY createdat DESC")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return [{
+            "id": r[0],
+            "propertyId": r[1],
+            "insight": r[2],
+            "recommendation": r[3],
+            "proposedValue": r[4],
+            "status": r[5],
+            "version": r[6],
+            "createdAt": r[7]
+        } for r in rows]
+    except Exception as e:
+        print("Error fetching actions from DB:", e)
+        return []
+
+def get_action_by_id(action_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, propertyid, insight, recommendation, proposedvalue, status, version, createdat FROM automated_actions WHERE id = %s", (action_id,))
+        r = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if not r:
+            return None
+        return {
+            "id": r[0],
+            "propertyId": r[1],
+            "insight": r[2],
+            "recommendation": r[3],
+            "proposedValue": r[4],
+            "status": r[5],
+            "version": r[6],
+            "createdAt": r[7]
+        }
+    except Exception as e:
+        print(f"Error fetching action {action_id} from DB:", e)
+        return None
+
+def has_active_action(property_id: str) -> bool:
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM automated_actions WHERE propertyid = %s AND status IN ('PENDING', 'EXECUTING')", (property_id,))
+        count = cursor.fetchone()[0]
+        cursor.close()
+        conn.close()
+        return count > 0
+    except Exception as e:
+        print(f"Error checking active actions for {property_id} from DB:", e)
+        return False
+
+def insert_action(action: Dict[str, Any]):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO automated_actions (id, propertyid, insight, recommendation, proposedvalue, status, version, createdat) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (action["id"], action["propertyId"], action["insight"], action["recommendation"], action["proposedValue"], action["status"], action["version"], action["createdAt"])
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print("Error inserting action into DB:", e)
+
+def update_action_status_and_version(action_id: str, status: str, new_version: int):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE automated_actions SET status = %s, version = %s WHERE id = %s", (status, new_version, action_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Error updating action {action_id} to status {status} / v{new_version}:", e)
+
+def update_action_status(action_id: str, status: str):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE automated_actions SET status = %s WHERE id = %s", (status, action_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Error updating action {action_id} status to {status}:", e)
+
+def get_audit_logs() -> List[Dict[str, Any]]:
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, actionid, propertyid, eventtype, message, timestamp FROM actions_audit_log ORDER BY timestamp DESC")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return [{
+            "id": r[0],
+            "actionId": r[1],
+            "propertyId": r[2],
+            "eventType": r[3],
+            "message": r[4],
+            "timestamp": r[5]
+        } for r in rows]
+    except Exception as e:
+        print("Error fetching audit logs from DB:", e)
+        return []
+
+def insert_audit_log(log: Dict[str, Any]):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO actions_audit_log (id, actionid, propertyid, eventtype, message, timestamp) VALUES (%s, %s, %s, %s, %s, %s)",
+            (log["id"], log["actionId"], log["propertyId"], log["eventType"], log["message"], log["timestamp"])
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print("Error inserting audit log into DB:", e)
 
 # --- 4. Semantic Cube Definitions (Cube.js Simulation) ---
 
@@ -164,10 +279,45 @@ def generate_cube_token() -> str:
 
 def execute_semantic_query(query: Dict[str, Any]) -> List[Dict[str, Any]]:
     # 1. Format query for official CubeJS REST specifications
-    # CubeJS maps names like OccupancyCube.name, OccupancyCube.occupancyRate
     cube_name = query.get("cube")
-    measures = [f"{cube_name}.{m}" for m in query.get("measures", [])]
-    dimensions = [f"{cube_name}.{d}" for d in query.get("dimensions", [])]
+    raw_measures = query.get("measures", [])
+    raw_dimensions = query.get("dimensions", [])
+    
+    # Exact dimension/measure schemas to perform auto-correction for LLM type hallucinations
+    cube_fields = {
+        "OccupancyCube": {
+            "measures": {"totalUnits", "occupiedUnits", "occupancyRate", "targetRate"},
+            "dimensions": {"id", "name"}
+        },
+        "MarketingSpendCube": {
+            "measures": {"monthlySpend"},
+            "dimensions": {"propertyId", "name", "channel"}
+        },
+        "LeaseRiskCube": {
+            "measures": {"monthlyRent"},
+            "dimensions": {"id", "propertyId", "name", "unitType", "expirationDate"}
+        }
+    }
+    
+    if cube_name in cube_fields:
+        schema = cube_fields[cube_name]
+        # Combine all requested fields to re-sort them into their correct categories
+        all_requested = set(raw_measures) | set(raw_dimensions)
+        
+        corrected_measures = [f for f in all_requested if f in schema["measures"]]
+        corrected_dimensions = [f for f in all_requested if f in schema["dimensions"]]
+        
+        # Fallback to keep original arrays if auto-sorting results in empty sets
+        if not corrected_measures and raw_measures:
+            corrected_measures = raw_measures
+        if not corrected_dimensions and raw_dimensions:
+            corrected_dimensions = raw_dimensions
+            
+        measures = [f"{cube_name}.{m}" for m in corrected_measures]
+        dimensions = [f"{cube_name}.{d}" for d in corrected_dimensions]
+    else:
+        measures = [f"{cube_name}.{m}" for m in raw_measures]
+        dimensions = [f"{cube_name}.{d}" for d in raw_dimensions]
     
     cube_query = {
         "measures": measures,
@@ -196,7 +346,6 @@ def execute_semantic_query(query: Dict[str, Any]) -> List[Dict[str, Any]]:
     }
 
     with httpx.Client() as client:
-        # Calls the load endpoint on Docker container running on port 4000
         response = client.post(
             "http://localhost:4000/cubejs-api/v1/load",
             json={"query": cube_query},

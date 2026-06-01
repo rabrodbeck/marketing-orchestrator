@@ -9,16 +9,20 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Load env variables and setup database
+# Load env variables and database functions
 from mockDatabase import (
-    propertiesDB,
-    marketingSpendDB,
-    actionsDB,
-    actionsAuditLogDB,
+    get_all_properties,
+    get_all_marketing_spend,
+    get_actions as get_actions_db,
+    get_action_by_id,
+    has_active_action,
+    insert_action,
+    update_action_status_and_version,
+    update_action_status,
+    get_audit_logs as get_audit_logs_db,
+    insert_audit_log,
     cubeSchemaDB,
-    execute_semantic_query,
-    save_actions,
-    occupancyTargetsDB
+    execute_semantic_query
 )
 
 load_dotenv()
@@ -26,7 +30,7 @@ load_dotenv()
 # Initialize FastAPI app
 app = FastAPI(title="Marketing Orchestrator FastAPI Gateway")
 
-# Enable CORS (same mapping as Node.js)
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins = ["http://localhost:5173"], # React dev server
@@ -59,54 +63,44 @@ def create_audit_log(action_id: str, property_id: str, event_type: str, message:
         "message": message,
         "timestamp": datetime.utcnow().isoformat() + "Z"
     }
-    actionsAuditLogDB.append(new_log)
+    insert_audit_log(new_log)
     print(f"[AUDIT LEDGER] [{event_type}] - {message}")
 
-# 3. Async Decoupled Backgroun Task simulation
+# 3. Async Decoupled Background Task simulation
 def simulate_background_sync(action_id: str, property_id: str):
     # Mimic a 3-second writeback process
     time.sleep(3)
 
-    # Locate and transition status
-    for action in actionsDB:
-        if action["id"] == action_id:
-            action["status"] = "SUCCESS"
-            save_actions(actionsDB)
-            create_audit_log(
-                action_id,
-                property_id, 
-                "SYNC SUCCESS",
-                f"Successfully synced optimized budget parameters for {action_id}. External API returned status 200 OK."
-            )
-            break
+    # Transition status in DB
+    update_action_status(action_id, "SUCCESS")
+    create_audit_log(
+        action_id,
+        property_id, 
+        "SYNC SUCCESS",
+        f"Successfully synced optimized budget parameters for {action_id}. External API returned status 200 OK."
+    )
 
 # 4. API Endpoint Handlers
 @app.get("/api/actions")
-def get_actions():
-    return { "success": True, "actions": actionsDB}
+def get_actions_endpoint():
+    return { "success": True, "actions": get_actions_db()}
 
 @app.post("/api/analyze")
 def trigger_analysis():
-    # FIXED: Renamed loop variable from 'property' to 'prop' to avoid Python keyword collision
-    for prop in propertiesDB:
+    properties = get_all_properties()
+    marketing_spend = get_all_marketing_spend()
+    
+    for prop in properties:
         if prop["totalUnits"] == 0:
             continue
             
         occupancy_rate = prop["occupiedUnits"] / prop["totalUnits"]
-        marketing = next((m for m in marketingSpendDB if m["propertyId"] == prop["id"]), None)
+        marketing = next((m for m in marketing_spend if m["propertyId"] == prop["id"]), None)
 
         # Anomaly criteria (matching original rules)
         if marketing and occupancy_rate >= 0.92 and marketing["monthlySpend"] >= 3000:
-            # Check for existing action locks
-            has_recent = False
-            for a in actionsDB:
-                if a["propertyId"] == prop["id"]:
-                    is_pending_or_executing = a["status"] in ["PENDING", "EXECUTING"]
-                    if is_pending_or_executing:
-                        has_recent = True
-                        break
-            
-            if not has_recent:
+            # Check for existing action locks in the database
+            if not has_active_action(prop["id"]):
                 proposed_reduction = round(marketing["monthlySpend"] * 0.50)
                 new_action = {
                     "id": f"act-{random.randint(100000, 999999)}",
@@ -118,14 +112,13 @@ def trigger_analysis():
                     "version": 1,
                     "createdAt": datetime.utcnow().isoformat() + "Z"
                 }
-                actionsDB.append(new_action)
-                save_actions(actionsDB)
+                insert_action(new_action)
                 
-    return {"success": True, "actions": actionsDB}
+    return {"success": True, "actions": get_actions_db()}
 
 @app.post("/api/actions/{action_id}/execute")
 def execute_action(action_id: str, payload: ActionExecutionPayload, background_tasks: BackgroundTasks):
-    target_action = next((a for a in actionsDB if a["id"] == action_id), None)
+    target_action = get_action_by_id(action_id)
     
     if not target_action:
         raise HTTPException(status_code=404, detail="Target action record not found")
@@ -138,19 +131,27 @@ def execute_action(action_id: str, payload: ActionExecutionPayload, background_t
             f"Execution rejected: operation is already running. Status is {target_action['status']}."
         )
         raise HTTPException(status_code=400, detail="Action state must be PENDING for execution.")
+        
     # Concurrency match check
     if target_action["version"] != payload.incomingVersion:
         create_audit_log(
             action_id,
             target_action["propertyId"],
             "SYNC_FAILED",
-            f"Concurrency Collision: Client snapshot (v{payload.incomingVersion}) is out of sync with memory state (v{target_action['version']})."
+            f"Concurrency Collision: Client snapshot (v{payload.incomingVersion}) is out of sync with database state (v{target_action['version']})."
         )
         raise HTTPException(status_code=409, detail="Concurrency conflict encountered.")
+        
     # Secure the version lock
-    target_action["status"] = "EXECUTING"
-    target_action["version"] += 1
-    save_actions(actionsDB)
+    new_status = "EXECUTING"
+    new_version = target_action["version"] + 1
+    
+    update_action_status_and_version(action_id, new_status, new_version)
+    
+    # Reflect the status and version changes in the returned payload
+    target_action["status"] = new_status
+    target_action["version"] = new_version
+    
     create_audit_log(
         action_id,
         target_action["propertyId"],
@@ -161,13 +162,16 @@ def execute_action(action_id: str, payload: ActionExecutionPayload, background_t
     background_tasks.add_task(simulate_background_sync, action_id, target_action["propertyId"])
     # Respond with HTTP 202 (Accepted) immediately to keep the UX fast and non-blocking
     return {"success": True, "action": target_action}
+
 @app.get("/api/audit-logs")
-def get_audit_logs():
-    # Reverse audit logs so newest items show on top
-    return {"success": True, "logs": list(reversed(actionsAuditLogDB))}
+def get_audit_logs_endpoint():
+    # Database query already sorts DESC
+    return {"success": True, "logs": get_audit_logs_db()}
+
 @app.get("/api/cube-metadata")
 def get_cube_metadata():
     return {"success": True, "cubes": cubeSchemaDB}
+
 @app.post("/api/query-analytics")
 def query_analytics(payload: Dict[str, Any]):
     try:
@@ -178,6 +182,7 @@ def query_analytics(payload: Dict[str, Any]):
         return {"success": True, "data": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 # --- 5. OpenAI Agent Integration ---
 @app.post("/api/copilot/chat")
 async def copilot_chat(payload: ChatPayload):
@@ -188,17 +193,20 @@ async def copilot_chat(payload: ChatPayload):
         
     last_message = messages[-1]
     action_id = f"chat-agent-{random.randint(10000, 99999)}"
+    
     # Unified telemetry tracing
     def log_trace(msg: str):
-        actionsAuditLogDB.append({
+        new_log = {
             "id": f"log-{int(time.time())}-{random.randint(100, 999)}",
             "actionId": action_id,
             "propertyId": "AGENT_ORCHESTRATOR",
             "eventType": "EXECUTION_STARTED",
             "message": msg,
             "timestamp": datetime.utcnow().isoformat() + "Z"
-        })
+        }
+        insert_audit_log(new_log)
         print(f"[AGENT TELEMETRY] {msg}")
+
     log_trace(f"Inbound chat query acquired: \"{last_message.content}\"")
     try:
         system_prompt = """You are a specialized occupancy analyst and conversational assistant. Your role is to answer questions about occupancy performance with precision and expert insight.
@@ -256,24 +264,45 @@ Use your analytical tools to pull live data. Always call the appropriate tool be
             tool_choice="auto"
         )
         response_message = response.choices[0].message
-        # Check for OpenAI tool dispatch
+                # Check for OpenAI tool dispatch
         if response_message.tool_calls:
-            tool_call = response_message.tool_calls[0]
-            log_trace(f"Step 2: OpenAI dispatched Tool Call: {tool_call.function.name}")
-            import json
-            function_args = json.loads(tool_call.function.arguments)
-            log_trace(f"[TOOL CALL] Executing semantic query: {json.dumps(function_args)}")
-            # Run query
-            query_results = execute_semantic_query(function_args)
-            log_trace(f"Step 3: Query success. Retrieved: {json.dumps(query_results)}")
-            log_trace("Step 4: Feeding data payload back to OpenAI to finalize the analysis...")
-            # Run second call providing tool feedback
-            conversation.append(response_message) # type: ignore
+            log_trace(f"Step 2: OpenAI dispatched {len(response_message.tool_calls)} Tool Calls.")
+            
+            # 1. First append the assistant message listing ALL tool calls
             conversation.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": json.dumps(query_results)
-            }) # type: ignore
+                "role": "assistant",
+                "content": response_message.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    } for tc in response_message.tool_calls
+                ]
+            })
+            
+            # 2. Loop through and execute each tool call, appending its corresponding response
+            for tc in response_message.tool_calls:
+                import json
+                function_args = json.loads(tc.function.arguments)
+                log_trace(f"[TOOL CALL] Executing semantic query: {json.dumps(function_args)}")
+                
+                # Run query
+                query_results = execute_semantic_query(function_args)
+                log_trace(f"Step 3: Query success. Retrieved: {json.dumps(query_results)}")
+                
+                # Append matching tool response
+                conversation.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(query_results)
+                })
+                
+            log_trace("Step 4: Feeding data payloads back to OpenAI to finalize the analysis...")
+            # Run second call providing all tool feedback
             second_response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=conversation # type: ignore

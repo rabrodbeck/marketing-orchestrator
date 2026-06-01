@@ -1,5 +1,5 @@
 cube(`LeaseRiskCube`, {
-  sql: `SELECT * FROM lease_expirations`,
+  sql: `SELECT l.*, p.name FROM lease_expirations l JOIN properties p ON l.propertyid = p.id`,
 
   measures: {
     monthlyRent: {
@@ -17,6 +17,10 @@ cube(`LeaseRiskCube`, {
     },
     propertyId: {
       sql: `propertyid`,
+      type: `string`
+    },
+    name: {
+      sql: `name`,
       type: `string`
     },
     unitType: {

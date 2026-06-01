@@ -1,4 +1,3 @@
-import React from "react";;
 
 // Define the interface contract matching our backend database payload shape
 interface AuditLog {
@@ -44,7 +43,7 @@ export default function TelemetryPanel({ logs }: TelemetryPanelProps) {
                                 <span className="text-slate-500 text-[10px] select-none">
                                     [{new Date(log.timestamp).toLocaleTimeString()}]
                                 </span>
-                                <span className={`font-bold ${colorMap[log.eventType]} text-[10px] tracking-wide uppercase min-w-[130px] inline-block`}>
+                                                                <span className={`font-bold ${colorMap[log.eventType]} text-[10px] tracking-wide uppercase min-w-32.5 inline-block`}>
                                     {log.eventType}
                                 </span>
                                 <span className="text-slate-300 flex-1">{log.message}</span>

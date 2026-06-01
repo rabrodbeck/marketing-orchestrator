@@ -63,6 +63,31 @@ def setup_supabase_database():
                    FOREIGN KEY(propertyId) references properties(id)
                    )
                    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS automated_actions (
+                   id VARCHAR(50) PRIMARY KEY,
+                   propertyId VARCHAR(50) NOT NULL,
+                   insight TEXT NOT NULL,
+                   recommendation TEXT NOT NULL,
+                   proposedValue INTEGER NOT NULL,
+                   status VARCHAR(50) NOT NULL,
+                   version INTEGER NOT NULL,
+                   createdAt VARCHAR(50) NOT NULL,
+                   FOREIGN KEY(propertyId) references properties(id)
+                   )
+                   """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS actions_audit_log (
+                   id VARCHAR(50) PRIMARY KEY,
+                   actionId VARCHAR(50) NOT NULL,
+                   propertyId VARCHAR(50) NOT NULL,
+                   eventType VARCHAR(50) NOT NULL,
+                   message TEXT NOT NULL,
+                   timestamp VARCHAR(50) NOT NULL
+                   )
+                   """)
     
     # 2. Seed Data
     print("Seeding database tables...")
@@ -106,10 +131,22 @@ def setup_supabase_database():
         ("prop-106", 0.95)
     ])
 
+    cursor.execute("TRUNCATE TABLE automated_actions CASCADE")
+    cursor.executemany("INSERT INTO automated_actions VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", [
+        ("act-bbx08d2ci", "prop-101", "Oakridge Luxury Apartments matches high stability constraints at 97% occupancy, but marketing spend remains unthrottled at $5400/mo.", "Scale back channel budget by 50% to $2700/mo to safeguard operational margins.", 2700, "SUCCESS", 2, "2026-05-22T17:41:04.362Z"),
+        ("act-7uwddl868", "prop-102", "Riverfront Micro-Lofts matches high stability constraints at 95% occupancy, but marketing spend remains unthrottled at $3200/mo.", "Scale back channel budget by 50% to $1600/mo to safeguard operational margins.", 1600, "PENDING", 1, "2026-05-22T17:41:04.363Z"),
+        ("act-1nhc2ukfz", "prop-101", "Oakridge Luxury Apartments matches high stability constraints at 97% occupancy, but marketing spend remains unthrottled at $5400/mo.", "Scale back channel budget by 50% to $2700/mo to safeguard operational margins.", 2700, "SUCCESS", 2, "2026-05-29T16:17:40.687Z"),
+        ("act-hvzn9u6jn", "prop-104", "Summit Ridge Apartments matches high stability constraints at 97% occupancy, but marketing spend remains unthrottled at $6000/mo.", "Scale back channel budget by 50% to $3000/mo to safeguard operational margins.", 3000, "PENDING", 1, "2026-05-29T16:18:32.127Z"),
+        ("act-a61d1ku81", "prop-106", "Pinnacle Plaza Lofts matches high stability constraints at 98% occupancy, but marketing spend remains unthrottled at $4500/mo.", "Scale back channel budget by 50% to $2250/mo to safeguard operational margins.", 2250, "PENDING", 1, "2026-05-29T16:18:32.128Z"),
+        ("act-970884", "prop-101", "Oakridge Luxury Apartments matches high stability constraints at 97% occupancy, but marketing spend remains unthrottled at $5400/mo.", "Scale back channel budget by 50% to $2700/mo to safeguard operational margins.", 2700, "SUCCESS", 2, "2026-06-01T16:21:30.146340Z")
+    ])
+
+    cursor.execute("TRUNCATE TABLE actions_audit_log CASCADE")
+
     conn.commit()
     cursor.close()
     conn.close()
-    print("Supabase PostgresSQL Database successfully seeded!")
+    print("Supabase PostgresSQL Database successfully seeded with action tables!")
 
 if __name__ == "__main__":
     setup_supabase_database()
