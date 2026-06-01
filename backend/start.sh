@@ -16,7 +16,7 @@ export CUBEJS_DEV_MODE=true
 
 # 1. Start the CubeJS Analytical Server in the background on port 4000
 echo "Launching private CubeJS Analytical Server..."
-cubejs-server &
+/cube/node_modules/.bin/cubejs-server &
 
 # Wait 8 seconds to ensure the analytical layer finishes compilation & handshakes with Supabase
 sleep 8
